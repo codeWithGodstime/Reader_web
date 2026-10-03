@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { AVATAR_URL, LOGO_URL } from "../brand";
 import { useShop } from "../context/ShopContext";
 import { Icon } from "./Icon";
+import { Skeleton } from "./Skeleton";
 
 const links = [
   { to: "/", label: "Shop & Catalog", end: true },
@@ -12,7 +13,7 @@ const links = [
 ];
 
 export function Header() {
-  const { count, user, logout } = useShop();
+  const { count, user, ready, logout } = useShop();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -96,48 +97,54 @@ export function Header() {
               </span>
             )}
           </Link>
-          <div className="relative pl-1">
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded-full p-1 hover:bg-[#f0ede9]"
-              aria-expanded={menuOpen}
-              aria-label="Account menu"
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <img src={AVATAR_URL} alt="" className="h-8 w-8 rounded-full object-cover" />
-              <Icon name="expand_more" className="text-base text-outline" />
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-linen bg-card p-2 shadow-paper">
-                {user ? (
-                  <>
-                    <p className="px-3 py-2 font-display text-base text-forest">{user.name}</p>
-                    <p className="px-3 pb-2 text-xs text-muted">Patron #{user.patron_number}</p>
-                    <Link to="/orders" className="block rounded-xl px-3 py-2 text-sm hover:bg-sheet" onClick={() => setMenuOpen(false)}>
-                      Orders & Tracking
-                    </Link>
-                    <Link to="/orders?panel=shelves" className="block rounded-xl px-3 py-2 text-sm hover:bg-sheet" onClick={() => setMenuOpen(false)}>
-                      Saved Shelves
-                    </Link>
-                    <button
-                      type="button"
-                      className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-sheet"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        void logout();
-                      }}
-                    >
-                      Sign out
-                    </button>
-                  </>
-                ) : (
-                  <Link to="/login" className="block rounded-xl px-3 py-2 text-sm font-semibold text-forest hover:bg-sheet" onClick={() => setMenuOpen(false)}>
-                    Sign in
+          {user ? (
+            <div className="relative pl-1">
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-full p-1 hover:bg-[#f0ede9]"
+                aria-expanded={menuOpen}
+                aria-label="Account menu"
+                onClick={() => setMenuOpen((open) => !open)}
+              >
+                <img src={AVATAR_URL} alt="" className="h-8 w-8 rounded-full object-cover" />
+                <Icon name="expand_more" className="text-base text-outline" />
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 mt-2 w-56 rounded-2xl border border-linen bg-card p-2 shadow-paper">
+                  <p className="px-3 py-2 font-display text-base text-forest">{user.name}</p>
+                  <p className="px-3 pb-2 text-xs text-muted">Patron #{user.patron_number}</p>
+                  <Link to="/orders" className="block rounded-xl px-3 py-2 text-sm hover:bg-sheet" onClick={() => setMenuOpen(false)}>
+                    Orders & Tracking
                   </Link>
-                )}
-              </div>
-            )}
-          </div>
+                  <Link to="/orders?panel=shelves" className="block rounded-xl px-3 py-2 text-sm hover:bg-sheet" onClick={() => setMenuOpen(false)}>
+                    Saved Shelves
+                  </Link>
+                  <button
+                    type="button"
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm hover:bg-sheet"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void logout();
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : ready ? (
+            <Link
+              to="/login?mode=register"
+              className="ml-1 rounded-full bg-forest px-3 py-2 text-sm font-semibold text-white sm:px-4"
+            >
+              Sign up
+            </Link>
+          ) : (
+            <div role="status" aria-label="Loading account" className="ml-1">
+              <span className="sr-only">Loading account</span>
+              <Skeleton className="h-9 w-20 rounded-full" />
+            </div>
+          )}
           <button type="button" className="rounded-full p-2 xl:hidden" aria-label="Open menu" onClick={() => setNavOpen((open) => !open)}>
             <Icon name={navOpen ? "close" : "menu"} />
           </button>

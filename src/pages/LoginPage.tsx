@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/client";
 import { GoogleContinue } from "../components/GoogleContinue";
 import { useShop } from "../context/ShopContext";
@@ -7,7 +7,14 @@ import { useShop } from "../context/ShopContext";
 export function LoginPage() {
   const { login, loginWithGoogle, register, user } = useShop();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [searchParams] = useSearchParams();
+  const modeFromUrl = searchParams.get("mode") === "register" ? "register" : "login";
+  const [mode, setMode] = useState<"login" | "register">(modeFromUrl);
+
+  useEffect(() => {
+    setMode(modeFromUrl);
+  }, [modeFromUrl]);
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
