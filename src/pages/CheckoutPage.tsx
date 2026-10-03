@@ -4,6 +4,7 @@ import { ApiError, api } from "../api/client";
 import type { ShippingMethod } from "../api/types";
 import { Cover } from "../components/Cover";
 import { Icon } from "../components/Icon";
+import { Skeleton, SkeletonRegion } from "../components/Skeleton";
 import { useShop } from "../context/ShopContext";
 import { cents, dollars, fromCents } from "../lib/money";
 
@@ -19,6 +20,7 @@ export function CheckoutPage() {
   const { cart, user, ready, setQuantity, removeLine, applyVoucher, removeVoucher, replaceCart } = useShop();
   const navigate = useNavigate();
   const [methods, setMethods] = useState<ShippingMethod[]>([]);
+  const [methodsReady, setMethodsReady] = useState(false);
   const [speed, setSpeed] = useState<"standard" | "express">("standard");
   const [email, setEmail] = useState(user?.email ?? "");
   const [news, setNews] = useState(true);
@@ -46,17 +48,20 @@ export function CheckoutPage() {
 
   useEffect(() => {
     let active = true;
+    setMethodsReady(false);
     api.shippingMethods(merchandise).then((rows) => {
       if (active) setMethods(rows);
     }).catch(() => {
       if (active) setMethods([]);
+    }).finally(() => {
+      if (active) setMethodsReady(true);
     });
     return () => {
       active = false;
     };
   }, [merchandise]);
 
-  if (!ready) return <div className="mx-auto max-w-7xl px-5 py-10"><div className="h-64 animate-pulse rounded-2xl bg-sheet" /></div>;
+  if (!ready) return <CheckoutSkeleton />;
   if (!user) {
     return (
       <div className="mx-auto max-w-lg px-5 py-16 text-center">
@@ -181,13 +186,26 @@ export function CheckoutPage() {
               {(["standard", "express"] as const).map((code) => {
                 const method = methods.find((item) => item.code === code);
                 return (
-                  <button key={code} type="button" onClick={() => setSpeed(code)} className={`rounded-xl border p-4 text-left ${speed === code ? "border-forest bg-sheet" : "border-linen"}`}>
-                    <div className="flex justify-between font-semibold text-forest">
-                      <span>{method?.label ?? (code === "standard" ? "Standard Ground" : "Priority Express")}</span>
-                      <span>{method ? (method.price === "0.00" ? "FREE" : dollars(method.price)) : "—"}</span>
-                    </div>
-                    <p className="text-xs text-muted">{method?.eta ?? method?.detail}</p>
-                    <p className="mt-2 text-xs">{method?.detail}</p>
+                  <button key={code} type="button" aria-busy={!methodsReady} aria-label={methodsReady ? undefined : code === "standard" ? "Loading standard delivery" : "Loading express delivery"} onClick={() => setSpeed(code)} className={`rounded-xl border p-4 text-left ${speed === code ? "border-forest bg-sheet" : "border-linen"}`}>
+                    {!methodsReady ? (
+                      <span className="block space-y-2" aria-hidden="true">
+                        <span className="flex justify-between gap-3">
+                          <Skeleton className="h-4 w-32 rounded" />
+                          <Skeleton className="h-4 w-12 rounded" />
+                        </span>
+                        <Skeleton className="h-3 w-24 rounded" />
+                        <Skeleton className="h-3 w-full rounded" />
+                      </span>
+                    ) : (
+                      <>
+                        <div className="flex justify-between font-semibold text-forest">
+                          <span>{method?.label ?? (code === "standard" ? "Standard Ground" : "Priority Express")}</span>
+                          <span>{method ? (method.price === "0.00" ? "FREE" : dollars(method.price)) : "—"}</span>
+                        </div>
+                        <p className="text-xs text-muted">{method?.eta ?? method?.detail}</p>
+                        <p className="mt-2 text-xs">{method?.detail}</p>
+                      </>
+                    )}
                   </button>
                 );
               })}
@@ -288,6 +306,90 @@ export function CheckoutPage() {
         </aside>
       </form>
     </div>
+  );
+}
+
+function CheckoutSkeleton() {
+  return (
+    <SkeletonRegion label="Loading checkout" className="mx-auto w-full max-w-7xl px-5 py-8 sm:px-8">
+      <Skeleton className="h-3 w-32 rounded" />
+      <Skeleton className="mt-2 h-10 w-72 max-w-full rounded" />
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Skeleton className="h-4 w-28 rounded" />
+        <Skeleton className="h-4 w-28 rounded" />
+        <Skeleton className="h-4 w-36 rounded" />
+      </div>
+      <div className="mt-8 grid items-start gap-8 lg:grid-cols-12">
+        <div className="space-y-6 lg:col-span-7">
+          <div className="rounded-2xl bg-card p-6 shadow-sm">
+            <Skeleton className="h-7 w-56 rounded" />
+            <Skeleton className="mt-4 h-4 w-64 max-w-full rounded" />
+            <Skeleton className="mt-2 h-12 w-full rounded-xl" />
+            <Skeleton className="mt-3 h-3 w-3/4 rounded" />
+            <Skeleton className="mt-3 h-3 w-2/3 rounded" />
+          </div>
+          <div className="rounded-2xl bg-card p-6 shadow-sm">
+            <Skeleton className="h-7 w-48 rounded" />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Skeleton className="h-12 rounded-xl sm:col-span-2" />
+              <Skeleton className="h-12 rounded-xl sm:col-span-2" />
+              <Skeleton className="h-12 rounded-xl sm:col-span-2" />
+              <Skeleton className="h-12 rounded-xl" />
+              <Skeleton className="h-12 rounded-xl" />
+              <Skeleton className="h-12 rounded-xl" />
+              <Skeleton className="h-12 rounded-xl" />
+            </div>
+          </div>
+          <div className="rounded-2xl bg-card p-6 shadow-sm">
+            <Skeleton className="h-7 w-40 rounded" />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Skeleton className="h-24 rounded-xl" />
+              <Skeleton className="h-24 rounded-xl" />
+            </div>
+          </div>
+          <div className="rounded-2xl bg-card p-6 shadow-sm">
+            <Skeleton className="h-7 w-44 rounded" />
+            <div className="mt-4 flex gap-2">
+              <Skeleton className="h-9 w-28 rounded-full" />
+              <Skeleton className="h-9 w-24 rounded-full" />
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Skeleton className="h-12 rounded-xl" />
+              <Skeleton className="h-12 rounded-xl" />
+              <Skeleton className="h-12 rounded-xl" />
+            </div>
+          </div>
+        </div>
+        <aside className="lg:col-span-5">
+          <div className="rounded-2xl bg-card p-6 shadow-sm">
+            <div className="flex items-baseline justify-between gap-3">
+              <Skeleton className="h-7 w-40 rounded" />
+              <Skeleton className="h-4 w-16 rounded" />
+            </div>
+            {Array.from({ length: 2 }, (_, index) => (
+              <div key={index} className="mt-4 flex gap-3">
+                <Skeleton className="h-24 w-16 shrink-0 rounded-md" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-5 w-3/4 rounded" />
+                  <Skeleton className="h-3 w-1/2 rounded" />
+                  <Skeleton className="h-3 w-1/3 rounded" />
+                </div>
+              </div>
+            ))}
+            <Skeleton className="mt-5 h-10 w-full rounded-xl" />
+            <div className="mt-4 space-y-2">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="flex justify-between">
+                  <Skeleton className="h-4 w-20 rounded" />
+                  <Skeleton className="h-4 w-14 rounded" />
+                </div>
+              ))}
+            </div>
+            <Skeleton className="mt-5 h-12 w-full rounded-full" />
+          </div>
+        </aside>
+      </div>
+    </SkeletonRegion>
   );
 }
 
