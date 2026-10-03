@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api/client";
-import type { Address, Invoice, Order, PaymentMethod, Shelf, Tracking } from "../api/types";
+import type { Address, Invoice, Order, PaymentMethod, Tracking } from "../api/types";
 import { AVATAR_URL } from "../brand";
 import { Cover } from "../components/Cover";
 import { Icon } from "../components/Icon";
+import { Skeleton, SkeletonRegion } from "../components/Skeleton";
 import { useShop } from "../context/ShopContext";
 import { dollars } from "../lib/money";
 
@@ -18,7 +19,7 @@ const panels = [
 type PanelId = (typeof panels)[number]["id"];
 
 export function OrdersPage() {
-  const { user, ready, replaceCart, refreshProfile } = useShop();
+  const { user, ready, replaceCart, refreshProfile, savedBooks, shelfName, shelfLoaded, toggleSaved } = useShop();
   const [params, setParams] = useSearchParams();
   const panel = (params.get("panel") as PanelId) || "orders";
   const [query, setQuery] = useState("");
@@ -28,10 +29,10 @@ export function OrdersPage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [instructions, setInstructions] = useState("");
   const [note, setNote] = useState("");
-  const [shelf, setShelf] = useState<Shelf | null>(null);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [payments, setPayments] = useState<PaymentMethod[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [paymentStatus, setPaymentStatus] = useState<"loading" | "ready">("loading");
   const [message, setMessage] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -69,22 +70,25 @@ export function OrdersPage() {
   }, [ready, user, query]);
 
   useEffect(() => {
-    if (!user || panel !== "shelves") return;
-    api.shelves().then(async (rows) => {
-      const saved = rows.find((row) => row.is_default) ?? rows[0];
-      if (saved) setShelf(await api.shelf(saved.id));
-    }).catch((error: unknown) => setMessage(error instanceof ApiError ? error.message : "Shelves could not be opened."));
-  }, [user, panel]);
-
-  useEffect(() => {
     if (!user || panel !== "payment") return;
+    let active = true;
+    setPaymentStatus("loading");
     Promise.all([api.addresses(), api.paymentMethods()]).then(([nextAddresses, nextPayments]) => {
+      if (!active) return;
       setAddresses(nextAddresses);
       setPayments(nextPayments);
-    }).catch((error: unknown) => setMessage(error instanceof ApiError ? error.message : "Saved details could not be opened."));
+      setPaymentStatus("ready");
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setMessage(error instanceof ApiError ? error.message : "Saved details could not be opened.");
+      setPaymentStatus("ready");
+    });
+    return () => {
+      active = false;
+    };
   }, [user, panel]);
 
-  if (!ready) return <div className="mx-auto max-w-7xl px-5 py-10"><div className="h-64 animate-pulse rounded-2xl bg-sheet" /></div>;
+  if (!ready) return <AccountSkeleton />;
   if (!user) {
     return (
       <div className="mx-auto max-w-lg px-5 py-16 text-center">
@@ -128,7 +132,7 @@ export function OrdersPage() {
       </aside>
       <section className="space-y-6 lg:col-span-9">
         {message && <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm text-[#93000a]">{message}</p>}
-        {panel === "orders" && status === "loading" && <div className="h-64 animate-pulse rounded-2xl bg-sheet" />}
+        {panel === "orders" && status === "loading" && <OrdersPanelSkeleton />}
         {panel === "orders" && status === "error" && <p className="text-sm text-muted">{message}</p>}
         {panel === "orders" && status === "ready" && (
           <>
@@ -228,13 +232,28 @@ export function OrdersPage() {
             </div>
           </>
         )}
-        {panel === "shelves" && (
+        {panel === "shelves" && !shelfLoaded && savedBooks.length === 0 && <ShelfSkeleton />}
+        {panel === "shelves" && (shelfLoaded || savedBooks.length > 0) && (
           <div className="rounded-2xl bg-card p-6 shadow-sm">
-            <h2 className="font-display text-3xl text-forest">{shelf?.name ?? "Saved Shelves"}</h2>
-            {!shelf || shelf.books.length === 0 ? <p className="mt-3 text-sm text-muted">No bookmarks yet.</p> : (
+            <h2 className="font-display text-3xl text-forest">{shelfName}</h2>
+            {savedBooks.length === 0 ? <p className="mt-3 text-sm text-muted">No bookmarks yet.</p> : (
               <ul className="mt-4 space-y-3">
-                {shelf.books.map((book) => (
-                  <li key={book.id}><Link to={`/books/${book.id}`} className="font-display text-xl text-forest">{book.title}</Link><p className="text-sm text-muted">{book.author_name}</p></li>
+                {savedBooks.map((book) => (
+                  <li key={book.id} className="flex items-start justify-between gap-3">
+                    <div>
+                      <Link to={`/books/${book.id}`} className="font-display text-xl text-forest">{book.title}</Link>
+                      <p className="text-sm text-muted">{book.author_name}</p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Remove bookmark"
+                      aria-pressed="true"
+                      onClick={() => void toggleSaved(book)}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-forest hover:bg-sheet"
+                    >
+                      <Icon name="bookmark" filled />
+                    </button>
+                  </li>
                 ))}
               </ul>
             )}
@@ -251,7 +270,8 @@ export function OrdersPage() {
             <button type="submit" className="mt-4 rounded-full bg-forest px-5 py-2 text-sm font-semibold text-white">Save profile</button>
           </form>
         )}
-        {panel === "payment" && (
+        {panel === "payment" && paymentStatus === "loading" && <PaymentSkeleton />}
+        {panel === "payment" && paymentStatus === "ready" && (
           <div className="space-y-4">
             <div className="rounded-2xl bg-card p-6 shadow-sm">
               <h2 className="font-display text-3xl text-forest">Addresses</h2>
@@ -275,6 +295,121 @@ export function OrdersPage() {
         )}
       </section>
     </div>
+  );
+}
+
+function AccountSkeleton() {
+  return (
+    <SkeletonRegion label="Loading your account" className="mx-auto grid w-full max-w-7xl gap-8 px-5 py-8 sm:px-8 lg:grid-cols-12">
+      <aside className="space-y-4 lg:col-span-3">
+        <div className="rounded-2xl bg-card p-5 shadow-sm">
+          <Skeleton className="h-16 w-16 rounded-full" />
+          <Skeleton className="mt-3 h-7 w-40 rounded" />
+          <Skeleton className="mt-2 h-4 w-28 rounded" />
+          <Skeleton className="mt-2 h-3 w-full rounded" />
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: 3 }, (_, index) => (
+            <div key={index} className="rounded-xl bg-card p-3 shadow-sm">
+              <Skeleton className="h-5 w-5 rounded" />
+              <Skeleton className="mt-2 h-4 w-14 rounded" />
+              <Skeleton className="mt-1 h-3 w-full rounded" />
+            </div>
+          ))}
+        </div>
+        <div className="space-y-2 rounded-2xl bg-card p-2 shadow-sm">
+          {Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-11 w-full rounded-xl" />)}
+        </div>
+      </aside>
+      <div className="lg:col-span-9">
+        <OrdersPanelSkeleton />
+      </div>
+    </SkeletonRegion>
+  );
+}
+
+function OrdersPanelSkeleton() {
+  return (
+    <SkeletonRegion label="Loading orders" className="space-y-6">
+      <article className="rounded-2xl bg-card p-6 shadow-sm">
+        <Skeleton className="h-3 w-32 rounded" />
+        <Skeleton className="mt-3 h-8 w-3/4 max-w-md rounded" />
+        <Skeleton className="mt-2 h-4 w-2/3 max-w-sm rounded" />
+        <Skeleton className="mt-4 h-20 w-full rounded-xl" />
+        <div className="mt-5 grid gap-3 md:grid-cols-5">
+          {Array.from({ length: 5 }, (_, index) => <Skeleton key={index} className="h-16 rounded-xl" />)}
+        </div>
+        <Skeleton className="mt-6 h-6 w-56 rounded" />
+        <div className="mt-3 space-y-3">
+          {Array.from({ length: 2 }, (_, index) => (
+            <div key={index} className="flex gap-3">
+              <Skeleton className="h-20 w-14 shrink-0 rounded-md" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-5 w-48 max-w-full rounded" />
+                <Skeleton className="h-3 w-32 rounded" />
+                <Skeleton className="h-4 w-24 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </article>
+      <div>
+        <Skeleton className="h-8 w-72 max-w-full rounded" />
+        <Skeleton className="mt-3 h-10 max-w-md rounded-xl" />
+        <div className="mt-4 space-y-4">
+          {Array.from({ length: 2 }, (_, index) => (
+            <div key={index} className="rounded-2xl bg-card p-5 shadow-sm">
+              <Skeleton className="h-4 w-2/3 rounded" />
+              <div className="mt-3 flex gap-3">
+                <Skeleton className="h-16 w-12 shrink-0 rounded-md" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-5 w-40 max-w-full rounded" />
+                  <Skeleton className="h-3 w-28 rounded" />
+                </div>
+              </div>
+              <Skeleton className="mt-3 h-9 w-28 rounded-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </SkeletonRegion>
+  );
+}
+
+function ShelfSkeleton() {
+  return (
+    <SkeletonRegion label="Loading saved shelves" className="rounded-2xl bg-card p-6 shadow-sm">
+      <Skeleton className="h-8 w-48 rounded" />
+      <div className="mt-4 space-y-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index}>
+            <Skeleton className="h-6 w-64 max-w-full rounded" />
+            <Skeleton className="mt-1 h-4 w-32 rounded" />
+          </div>
+        ))}
+      </div>
+    </SkeletonRegion>
+  );
+}
+
+function PaymentSkeleton() {
+  return (
+    <SkeletonRegion label="Loading addresses and payment" className="space-y-4">
+      <div className="rounded-2xl bg-card p-6 shadow-sm">
+        <Skeleton className="h-8 w-40 rounded" />
+        <div className="mt-4 space-y-2">
+          <Skeleton className="h-4 w-full rounded" />
+          <Skeleton className="h-4 w-5/6 rounded" />
+        </div>
+      </div>
+      <div className="rounded-2xl bg-card p-6 shadow-sm">
+        <Skeleton className="h-8 w-32 rounded" />
+        <div className="mt-4 space-y-2">
+          <Skeleton className="h-4 w-2/3 rounded" />
+          <Skeleton className="h-4 w-1/2 rounded" />
+        </div>
+      </div>
+    </SkeletonRegion>
   );
 }
 

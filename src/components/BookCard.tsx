@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ApiError, api } from "../api/client";
 import type { BookSummary } from "../api/types";
 import { useShop } from "../context/ShopContext";
 import { dollars } from "../lib/money";
 import { Cover } from "./Cover";
 import { Icon } from "./Icon";
+import { RatingStars } from "./RatingStars";
 
 const formatLabel: Record<BookSummary["format"], string> = {
   paperback: "Paperback",
@@ -15,13 +15,10 @@ const formatLabel: Record<BookSummary["format"], string> = {
 };
 
 export function BookCard({ book }: { book: BookSummary }) {
-  const { addToCart } = useShop();
+  const { addToCart, isSaved, toggleSaved } = useShop();
   const navigate = useNavigate();
   const [added, setAdded] = useState(false);
-  const [saved, setSaved] = useState(book.saved);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => setSaved(book.saved), [book.saved]);
+  const saved = isSaved(book.id, book.saved);
 
   return (
     <article className="group flex flex-col justify-between rounded-2xl bg-card p-4 shadow-sm transition hover:shadow-lift">
@@ -36,16 +33,11 @@ export function BookCard({ book }: { book: BookSummary }) {
           <button
             type="button"
             aria-label={saved ? "Remove bookmark" : "Bookmark title"}
-            disabled={busy}
+            aria-pressed={saved}
             onClick={() => {
-              setBusy(true);
-              const action = saved ? api.unsaveBook(book.id) : api.saveBook(book.id);
-              action
-                .then((result) => setSaved(result.saved))
-                .catch((error: unknown) => {
-                  if (error instanceof ApiError && error.status === 401) navigate("/login");
-                })
-                .finally(() => setBusy(false));
+              void toggleSaved(book).then((result) => {
+                if (result === "auth") navigate("/login");
+              });
             }}
             className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-card/90 text-forest shadow-sm backdrop-blur-sm hover:text-terracotta"
           >
@@ -53,9 +45,9 @@ export function BookCard({ book }: { book: BookSummary }) {
           </button>
         </div>
         <div className="space-y-1">
-          <div className="flex items-center gap-1 text-terracotta">
-            <Icon name="star" filled className="text-sm" />
-            <span className="text-[11px] font-bold">{book.rating.toFixed(1)}</span>
+          <div className="flex flex-row flex-nowrap items-center gap-1">
+            <RatingStars rating={book.rating} />
+            <span className="text-[11px] font-bold text-terracotta">{book.rating.toFixed(1)}</span>
             <span className="text-xs text-muted">({book.review_count.toLocaleString()})</span>
           </div>
           <h3 className="truncate font-display text-lg leading-6 font-semibold text-forest group-hover:text-terracotta">

@@ -5,13 +5,15 @@ import type { BookDetail, BookSummary, FormatCode, Review } from "../api/types";
 import { BookCard } from "../components/BookCard";
 import { Cover } from "../components/Cover";
 import { Icon } from "../components/Icon";
+import { RatingStars } from "../components/RatingStars";
+import { BookCardSkeleton, Skeleton, SkeletonRegion } from "../components/Skeleton";
 import { useShop } from "../context/ShopContext";
 import { dollars } from "../lib/money";
 
 export function BookPage() {
   const { bookId = "" } = useParams();
   const navigate = useNavigate();
-  const { addToCart, user } = useShop();
+  const { addToCart, user, isSaved, toggleSaved } = useShop();
   const [book, setBook] = useState<BookDetail | null>(null);
   const [related, setRelated] = useState<BookSummary[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -21,7 +23,6 @@ export function BookPage() {
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
   const [tab, setTab] = useState<"about" | "author" | "reviews">("about");
-  const [saved, setSaved] = useState(false);
   const [rating, setRating] = useState(5);
   const [reviewBody, setReviewBody] = useState("");
   const [reviewError, setReviewError] = useState("");
@@ -34,7 +35,6 @@ export function BookPage() {
         if (!active) return;
         setBook(detail);
         setFormat(detail.format);
-        setSaved(detail.saved);
         setRelated(companions);
         setReviews(reviewPage.results);
         setQuantity(1);
@@ -54,7 +54,7 @@ export function BookPage() {
   }, [bookId]);
 
   if (status === "loading") {
-    return <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8"><div className="h-[520px] animate-pulse rounded-2xl bg-sheet" /></div>;
+    return <BookDetailSkeleton />;
   }
   if (status === "missing") {
     return (
@@ -74,6 +74,7 @@ export function BookPage() {
     );
   }
 
+  const saved = isSaved(book.id, book.saved);
   const selected = book.formats.find((item) => item.code === format) ?? book.formats[0];
   const gallery = book.gallery.length > 0 ? book.gallery : [{ label: "Front", url: book.cover_url }];
 
@@ -102,11 +103,11 @@ export function BookPage() {
             <span className="absolute top-4 left-4 rounded-full bg-sheet/95 px-3 py-1 text-[11px] font-bold text-forest">{book.genre.name}</span>
             <button
               type="button"
-              aria-label="Bookmark title"
+              aria-label={saved ? "Remove bookmark" : "Bookmark title"}
+              aria-pressed={saved}
               onClick={() => {
-                const action = saved ? api.unsaveBook(book.id) : api.saveBook(book.id);
-                action.then((result) => setSaved(result.saved)).catch((error: unknown) => {
-                  if (error instanceof ApiError && error.status === 401) navigate("/login");
+                void toggleSaved(book).then((result) => {
+                  if (result === "auth") navigate("/login");
                 });
               }}
               className="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-card/90 text-forest shadow-sm"
@@ -139,8 +140,11 @@ export function BookPage() {
           <h1 className="mt-1 font-display text-4xl leading-tight font-semibold text-forest">{book.title}</h1>
           {book.subtitle && <p className="mt-1 font-display text-lg text-muted italic">{book.subtitle}</p>}
           <p className="mt-2 text-sm">by <span className="font-semibold">{book.author_name}</span></p>
-          <p className="mt-3 text-sm text-muted">
-            <span className="font-semibold text-forest">{book.rating.toFixed(1)}</span> ({book.review_count.toLocaleString()} verified readers)
+          <p className="mt-3 flex flex-row flex-nowrap items-center gap-2 text-sm text-muted">
+            <RatingStars rating={book.rating} />
+            <span>
+              <span className="font-semibold text-forest">{book.rating.toFixed(1)}</span> ({book.review_count.toLocaleString()} verified readers)
+            </span>
           </p>
           {selected && (
             <div className="mt-5 flex items-end gap-3">
@@ -266,10 +270,21 @@ export function BookPage() {
                         .catch((error: unknown) => setReviewError(error instanceof ApiError ? error.message : "The review was not saved."));
                     }}
                   >
-                    <label className="text-sm font-semibold text-forest">
-                      Rating
-                      <input type="number" min={1} max={5} value={rating} onChange={(event) => setRating(Number(event.target.value))} className="mt-1 block w-24 rounded-xl border border-linen px-3 py-2" />
-                    </label>
+                    <div className="flex flex-row flex-nowrap items-center gap-1">
+                      <span className="mr-1 text-sm font-semibold text-forest">Rating</span>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          aria-label={`${star} star${star === 1 ? "" : "s"}`}
+                          aria-pressed={star <= rating}
+                          onClick={() => setRating(star)}
+                          className="text-terracotta"
+                        >
+                          <Icon name="star" filled={star <= rating} className={star <= rating ? "text-terracotta" : "text-linen"} />
+                        </button>
+                      ))}
+                    </div>
                     <textarea value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} required placeholder="Write a review" className="mt-3 w-full rounded-xl border border-linen px-3 py-2" rows={3} />
                     {reviewError && <p className="mt-2 text-terracotta">{reviewError}</p>}
                     <button type="submit" className="mt-3 rounded-full bg-forest px-4 py-2 text-sm font-semibold text-white">Publish review</button>
@@ -282,6 +297,7 @@ export function BookPage() {
                   <article key={review.id} className="rounded-xl border border-linen p-4">
                     <p className="font-semibold text-forest">{review.reviewer_name}</p>
                     <p className="text-xs text-muted">{review.reviewer_title} {review.verified_purchase ? "· Verified purchase" : ""} {review.edition ? `· ${review.edition}` : ""}</p>
+                    <RatingStars rating={review.rating} className="mt-1" />
                     <p className="mt-2">“{review.body}”</p>
                   </article>
                 ))}
@@ -310,5 +326,89 @@ export function BookPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function BookDetailSkeleton() {
+  return (
+    <SkeletonRegion label="Loading this book" className="mx-auto w-full max-w-7xl px-5 py-8 sm:px-8">
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <Skeleton className="h-3 w-10 rounded" />
+        <Skeleton className="h-3 w-16 rounded" />
+        <Skeleton className="h-3 w-20 rounded" />
+        <Skeleton className="h-3 w-36 rounded" />
+      </div>
+      <div className="grid items-start gap-10 lg:grid-cols-12">
+        <div className="lg:col-span-5">
+          <Skeleton className="aspect-[3/4] w-full rounded-2xl" />
+          <div className="mt-4 grid grid-cols-4 gap-2">
+            {Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="aspect-[3/4] rounded-lg" />)}
+          </div>
+          <Skeleton className="mt-3 h-3 w-52 rounded" />
+        </div>
+        <div className="lg:col-span-7">
+          <Skeleton className="h-3 w-56 rounded" />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Skeleton className="h-6 w-24 rounded-full" />
+            <Skeleton className="h-6 w-28 rounded-full" />
+          </div>
+          <Skeleton className="mt-4 h-3 w-44 rounded" />
+          <Skeleton className="mt-2 h-10 w-4/5 rounded" />
+          <Skeleton className="mt-2 h-5 w-2/3 rounded" />
+          <Skeleton className="mt-3 h-4 w-40 rounded" />
+          <Skeleton className="mt-3 h-3 w-56 rounded" />
+          <Skeleton className="mt-5 h-10 w-28 rounded" />
+          <Skeleton className="mt-2 h-3 w-52 rounded" />
+          <Skeleton className="mt-6 h-4 w-28 rounded" />
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Skeleton className="h-16 rounded-xl" />
+            <Skeleton className="h-16 rounded-xl" />
+          </div>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <Skeleton className="h-12 w-full rounded-full sm:w-32" />
+            <Skeleton className="h-12 flex-1 rounded-full" />
+            <Skeleton className="h-12 w-full rounded-full sm:w-36" />
+          </div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <Skeleton className="h-16 rounded-xl" />
+            <Skeleton className="h-16 rounded-xl" />
+            <Skeleton className="h-16 rounded-xl" />
+          </div>
+        </div>
+      </div>
+      <div className="mt-12 grid gap-8 lg:grid-cols-12">
+        <div className="rounded-2xl bg-card p-6 shadow-sm lg:col-span-4">
+          <Skeleton className="h-6 w-48 rounded" />
+          <div className="mt-4 space-y-3">
+            {Array.from({ length: 5 }, (_, index) => (
+              <div key={index} className="flex justify-between gap-4 border-b border-linen py-2">
+                <Skeleton className="h-4 w-20 rounded" />
+                <Skeleton className="h-4 w-28 rounded" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="lg:col-span-8">
+          <div className="flex flex-wrap gap-4 border-b border-linen pb-3">
+            <Skeleton className="h-4 w-32 rounded" />
+            <Skeleton className="h-4 w-32 rounded" />
+            <Skeleton className="h-4 w-40 rounded" />
+          </div>
+          <div className="mt-5 space-y-2">
+            <Skeleton className="h-3 w-full rounded" />
+            <Skeleton className="h-3 w-full rounded" />
+            <Skeleton className="h-3 w-11/12 rounded" />
+            <Skeleton className="h-3 w-4/5 rounded" />
+          </div>
+        </div>
+      </div>
+      <div className="mt-12">
+        <Skeleton className="h-3 w-52 rounded" />
+        <Skeleton className="mt-2 h-8 w-64 rounded" />
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => <BookCardSkeleton key={index} />)}
+        </div>
+      </div>
+    </SkeletonRegion>
   );
 }
