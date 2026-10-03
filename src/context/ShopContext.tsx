@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ApiError, api, clearSession, getAccessToken, setSession } from "../api/client";
+import { ApiError, api, clearSession, getAccessToken, readStoredProfile, setSession, writeStoredProfile } from "../api/client";
 import type { BookSummary, Cart, FormatCode, Profile } from "../api/types";
+import { cartSocketUrl, savedSocketUrl } from "../config";
 
 type SavedResult = "ok" | "auth" | "error";
 
@@ -37,6 +38,18 @@ function message(error: unknown, fallback: string) {
 
 function withSaved(book: BookSummary): BookSummary {
   return { ...book, saved: true };
+}
+
+function isSavedUpdate(value: unknown): value is { type: "saved.updated"; saved: { name?: string; saved_book_count?: number; books: BookSummary[] } } {
+  if (!value || typeof value !== "object") return false;
+  const message = value as { type?: unknown; saved?: { books?: unknown } };
+  return message.type === "saved.updated" && !!message.saved && Array.isArray(message.saved.books);
+}
+
+function isCartUpdate(value: unknown): value is { type: "cart.updated"; cart: Cart } {
+  if (!value || typeof value !== "object") return false;
+  const message = value as { type?: unknown; cart?: { items?: unknown; item_count?: unknown } };
+  return message.type === "cart.updated" && !!message.cart && Array.isArray(message.cart.items) && typeof message.cart.item_count === "number";
 }
 
 export function ShopProvider({ children }: { children: ReactNode }) {
@@ -178,29 +191,196 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       setReady(true);
       return;
     }
+    const cached = readStoredProfile();
+    if (cached) setUser(cached);
     try {
-      const [profile, bag] = await Promise.all([api.me(), api.cart()]);
+      const profile = await api.me();
+      writeStoredProfile(profile);
       setUser(profile);
-      setCart(bag);
-      await loadSavedShelf();
-    } catch {
-      clearSession();
-      shelfVersion.current += 1;
-      setUser(null);
-      setCart(null);
-      setShelfName("Saved Shelves");
-      commitShelf([], new Set(), true);
-    } finally {
-      setReady(true);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        clearSession();
+        shelfVersion.current += 1;
+        setUser(null);
+        setCart(null);
+        setShelfName("Saved Shelves");
+        commitShelf([], new Set(), true);
+        setReady(true);
+        return;
+      }
+      if (!cached) {
+        setUser(null);
+        setReady(true);
+        return;
+      }
     }
+    try {
+      setCart(await api.cart());
+    } catch {
+      setCart(null);
+    }
+    await loadSavedShelf();
+    setReady(true);
   }, [commitShelf, loadSavedShelf]);
 
   useEffect(() => {
     void loadSession();
   }, [loadSession]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+    let stopped = false;
+    let socket: WebSocket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    const clearRetry = () => {
+      if (!retryTimer) return;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    };
+
+    const schedule = () => {
+      if (stopped || attempt >= 8) return;
+      clearRetry();
+      const delay = Math.min(1000 * 2 ** attempt, 15000);
+      attempt += 1;
+      retryTimer = setTimeout(connect, delay);
+    };
+
+    const connect = () => {
+      if (stopped) return;
+      const token = getAccessToken();
+      if (!token) {
+        schedule();
+        return;
+      }
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+      const next = new WebSocket(cartSocketUrl(token));
+      socket = next;
+      next.onopen = () => {
+        attempt = 0;
+      };
+      next.onmessage = (event) => {
+        if (typeof event.data !== "string") return;
+        try {
+          const parsed: unknown = JSON.parse(event.data);
+          if (isCartUpdate(parsed)) setCart(parsed.cart);
+        } catch {
+          /* Ignore frames that are not a cart snapshot. */
+        }
+      };
+      next.onclose = (event) => {
+        if (socket === next) socket = null;
+        if (stopped) return;
+        if (event.code === 4401) {
+          void api.cart().then((bag) => {
+            if (!stopped) setCart(bag);
+          }).catch(() => undefined).finally(schedule);
+          return;
+        }
+        schedule();
+      };
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      clearRetry();
+      if (!socket) return;
+      socket.onclose = null;
+      socket.close();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let stopped = false;
+    let socket: WebSocket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    const clearRetry = () => {
+      if (!retryTimer) return;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    };
+
+    const schedule = () => {
+      if (stopped || attempt >= 8) return;
+      clearRetry();
+      const delay = Math.min(1000 * 2 ** attempt, 15000);
+      attempt += 1;
+      retryTimer = setTimeout(connect, delay);
+    };
+
+    const connect = () => {
+      if (stopped) return;
+      const token = getAccessToken();
+      if (!token) {
+        schedule();
+        return;
+      }
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+      const next = new WebSocket(savedSocketUrl(token));
+      socket = next;
+      next.onopen = () => {
+        attempt = 0;
+      };
+      next.onmessage = (event) => {
+        if (typeof event.data !== "string") return;
+        try {
+          const parsed: unknown = JSON.parse(event.data);
+          if (!isSavedUpdate(parsed)) return;
+          if (parsed.saved.name) setShelfName(parsed.saved.name);
+          replaceShelf(parsed.saved.books);
+          if (typeof parsed.saved.saved_book_count === "number") {
+            const count = parsed.saved.saved_book_count;
+            setUser((profile) => {
+              if (!profile || profile.saved_book_count === count) return profile;
+              const next = { ...profile, saved_book_count: count };
+              writeStoredProfile(next);
+              return next;
+            });
+          }
+        } catch {
+          /* Ignore frames that are not a saved-items snapshot. */
+        }
+      };
+      next.onclose = (event) => {
+        if (socket === next) socket = null;
+        if (stopped) return;
+        if (event.code === 4401) {
+          void loadSavedShelf().catch(() => undefined).finally(schedule);
+          return;
+        }
+        schedule();
+      };
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || stopped) return;
+      attempt = 0;
+      clearRetry();
+      if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+      connect();
+    };
+
+    document.addEventListener("visibilitychange", onVisible);
+    connect();
+    return () => {
+      stopped = true;
+      clearRetry();
+      document.removeEventListener("visibilitychange", onVisible);
+      if (!socket) return;
+      socket.onclose = null;
+      socket.close();
+    };
+  }, [user?.id, loadSavedShelf, replaceShelf]);
+
   const acceptSession = useCallback(async (auth: { access: string; refresh: string; user: Profile }) => {
     setSession(auth.access, auth.refresh);
+    writeStoredProfile(auth.user);
     setUser(auth.user);
     const bag = await api.cart();
     setCart(bag);
@@ -221,6 +401,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const register = useCallback(async (name: string, email: string, password: string) => {
     const auth = await api.register({ name, email, password });
     setSession(auth.access, auth.refresh);
+    writeStoredProfile(auth.user);
     setUser(auth.user);
     const bag = await api.cart();
     setCart(bag);
@@ -286,7 +467,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     if (!getAccessToken()) return;
-    setUser(await api.me());
+    const profile = await api.me();
+    writeStoredProfile(profile);
+    setUser(profile);
   }, []);
 
   const value = useMemo<ShopContextValue>(
