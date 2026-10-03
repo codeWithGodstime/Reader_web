@@ -23,6 +23,7 @@ import type {
 
 const ACCESS_KEY = "reader.access";
 const REFRESH_KEY = "reader.refresh";
+const USER_KEY = "reader.user";
 
 export class ApiError extends Error {
   status: number;
@@ -50,6 +51,23 @@ export function setSession(access: string, refresh: string) {
 export function clearSession() {
   localStorage.removeItem(ACCESS_KEY);
   localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+export function readStoredProfile(): Profile | null {
+  const raw = localStorage.getItem(USER_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Profile;
+    if (!parsed || typeof parsed.id !== "string" || typeof parsed.name !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredProfile(profile: Profile) {
+  localStorage.setItem(USER_KEY, JSON.stringify(profile));
 }
 
 async function readError(response: Response) {
