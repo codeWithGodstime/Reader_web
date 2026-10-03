@@ -4,6 +4,7 @@ import { ApiError, api } from "../api/client";
 import type { BookSummary, FormatCode, Genre, PriceBand, SortKey } from "../api/types";
 import { BookCard } from "../components/BookCard";
 import { Icon } from "../components/Icon";
+import { BookCardSkeleton, Skeleton, SkeletonRegion } from "../components/Skeleton";
 
 const priceOptions: { id: PriceBand; label: string }[] = [
   { id: "any", label: "Any price" },
@@ -39,6 +40,7 @@ export function ShopPage() {
   const [format, setFormat] = useState<FormatCode | "">((params.get("format") as FormatCode) || "");
   const [inStock, setInStock] = useState(params.get("in_stock") !== "false");
   const [genres, setGenres] = useState<Genre[]>([]);
+  const [genresStatus, setGenresStatus] = useState<"loading" | "ready">("loading");
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [count, setCount] = useState(0);
   const [pageSize, setPageSize] = useState(4);
@@ -50,9 +52,13 @@ export function ShopPage() {
   useEffect(() => {
     let active = true;
     api.genres().then((rows) => {
-      if (active) setGenres(rows);
+      if (!active) return;
+      setGenres(rows);
+      setGenresStatus("ready");
     }).catch(() => {
-      if (active) setGenres([]);
+      if (!active) return;
+      setGenres([]);
+      setGenresStatus("ready");
     });
     return () => {
       active = false;
@@ -158,9 +164,13 @@ export function ShopPage() {
           <button type="button" className="ml-1 text-[11px] font-bold text-terracotta hover:underline" onClick={reset}>Reset all</button>
         </div>
         <div className="ml-auto flex items-center gap-6 text-xs text-muted">
-          <span className="hidden sm:inline">
-            Showing <strong className="font-semibold text-forest">{start}–{end}</strong> of <strong className="font-semibold text-forest">{count}</strong> books
-          </span>
+          {status === "loading" ? (
+            <Skeleton className="hidden h-3 w-44 rounded sm:block" />
+          ) : (
+            <span className="hidden sm:inline">
+              Showing <strong className="font-semibold text-forest">{start}–{end}</strong> of <strong className="font-semibold text-forest">{count}</strong> books
+            </span>
+          )}
           <label className="flex items-center gap-1 rounded-lg bg-card px-4 py-1.5 shadow-sm">
             <span className="text-[11px] font-bold text-muted">Sort by:</span>
             <select
@@ -205,6 +215,16 @@ export function ShopPage() {
                   All Volumes
                 </span>
               </label>
+              {genresStatus === "loading" && (
+                <div className="space-y-2" aria-hidden="true">
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <Skeleton className="h-3 w-28 rounded" />
+                      <Skeleton className="h-3 w-6 rounded" />
+                    </div>
+                  ))}
+                </div>
+              )}
               {genres.map((item) => (
                 <label key={item.slug} className="flex cursor-pointer items-center justify-between text-xs">
                   <span className="flex items-center gap-2 text-ink">
@@ -259,9 +279,9 @@ export function ShopPage() {
 
         <section className="flex flex-col gap-10 lg:col-span-9">
           {status === "loading" && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-[420px] animate-pulse rounded-2xl bg-sheet" />)}
-            </div>
+            <SkeletonRegion label="Loading the catalog" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 4 }, (_, index) => <BookCardSkeleton key={index} />)}
+            </SkeletonRegion>
           )}
           {status === "error" && (
             <div className="rounded-2xl border border-danger-soft bg-white p-8 text-center">
@@ -283,7 +303,11 @@ export function ShopPage() {
             </div>
           )}
           <nav aria-label="Catalog pagination" className="flex flex-col items-center justify-between gap-4 rounded-xl bg-sheet px-6 py-4 shadow-sm sm:flex-row">
-            <p className="text-xs text-muted">Showing <strong className="font-semibold text-forest">{start}–{end}</strong> of {count} books • Displaying {pageSize} per page</p>
+            {status === "loading" ? (
+              <Skeleton className="h-3 w-64 rounded" />
+            ) : (
+              <p className="text-xs text-muted">Showing <strong className="font-semibold text-forest">{start}–{end}</strong> of {count} books • Displaying {pageSize} per page</p>
+            )}
             <div className="flex items-center gap-1">
               <button type="button" disabled={page <= 1} onClick={() => writeParams({ page: String(page - 1) })} className="flex items-center gap-1 rounded-full px-4 py-1.5 text-[13px] font-semibold text-outline disabled:opacity-60">
                 <Icon name="arrow_back" className="text-base" /> Previous
